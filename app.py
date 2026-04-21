@@ -3,13 +3,38 @@ import pandas as pd
 import joblib
 import plotly.graph_objects as go
 
-# 设置页面配置
-st.set_page_config(page_title="QQQ 风险预测", layout="centered")
+# Page config
+st.set_page_config(page_title="QQQ Risk Predictor", layout="centered", page_icon="📈")
 
-st.title("📊 QQQ 下周大回撤风险预测")
-st.markdown("基于逻辑回归模型（召回率 92.3%，AUC 0.802）")
+# Custom CSS for better styling
+st.markdown("""
+<style>
+    .main {
+        background-color: #f5f7fa;
+    }
+    .stSlider label {
+        font-weight: 500;
+    }
+    .stExpander {
+        border: 1px solid #ddd;
+        border-radius: 10px;
+        background-color: white;
+    }
+    .risk-high {
+        color: #d32f2f;
+        font-weight: bold;
+    }
+    .risk-low {
+        color: #2e7d32;
+        font-weight: bold;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# 加载模型和特征（缓存，避免重复加载）
+st.title("📊 QQQ Next-Week Large Drawdown Risk Predictor")
+st.markdown("*Logistic Regression Model | Recall 92.3% | AUC 0.802*")
+
+# Load model and features
 @st.cache_resource
 def load_model():
     model = joblib.load('final_model.pkl')
@@ -23,82 +48,115 @@ def load_base():
 try:
     model, features = load_model()
     base = load_base()
+    base_vals = base.iloc[0].to_dict()
 except FileNotFoundError as e:
-    st.error(f"❌ 模型文件未找到: {e}\n请确保 final_model.pkl, features.pkl, max_drawdown_week_features.pkl 在当前目录。")
+    st.error(f"❌ Model files not found: {e}\nEnsure final_model.pkl, features.pkl, max_drawdown_week_features.pkl are in the current directory.")
     st.stop()
 
-# 提取基准特征值（用于滑块默认值）
-base_vals = base.iloc[0]
+# Define feature groups for better organization
+tech_features = ['MA_Bias', 'ATR', 'RSI', 'Volume_Change']
+sentiment_features = ['Sentiment_Level', 'Sentiment_Uncertainty', 'Volume_Spike']
+macro_features = ['VIX_Trend', 'yield_spread']
+interaction_features = ['Risk_Resonance', 'Price_Sentiment_Divergence']
 
-# 创建两列布局
-col1, col2 = st.columns([1, 1])
+# Sidebar for feature adjustment (or main column)
+st.sidebar.header("⚙️ Feature Adjustments")
+st.sidebar.markdown("Adjust the values below to see how risk probability changes. Default values are from the historical max-drawdown week (2025-04-04).")
 
-with col1:
-    st.subheader("🔧 调整特征值")
-    vix = st.slider(
-        "VIX 趋势 (VIX_Trend)",
-        min_value=-2.0, max_value=30.0, value=float(base_vals['VIX_Trend']),
-        step=0.5, help="VIX 与20周均线的差值，反映市场恐慌程度"
-    )
-    sentiment = st.slider(
-        "情绪分数 (Sentiment_Level)",
-        min_value=0.0, max_value=1.0, value=float(base_vals['Sentiment_Level']),
-        step=0.01, help="Reddit 情绪分数，0=悲观，1=乐观"
-    )
-    ma_bias = st.slider(
-        "价格偏离均线 (MA_Bias)",
-        min_value=-0.3, max_value=0.3, value=float(base_vals['MA_Bias']),
-        step=0.01, help="当前价格与20周均线的相对偏差"
-    )
-    volume_spike = st.slider(
-        "讨论量暴增 (Volume_Spike)",
-        min_value=0.5, max_value=3.0, value=float(base_vals['Volume_Spike']),
-        step=0.05, help="本周帖子数 / 过去4周平均帖子数"
-    )
-    # 高级选项
-    with st.expander("📈 更多特征"):
-        yield_spread = st.slider(
-            "债券利差 (yield_spread)",
-            min_value=-1.0, max_value=1.0, value=float(base_vals['yield_spread']),
-            step=0.05
-        )
-        rsi = st.slider(
-            "RSI",
-            min_value=0, max_value=100, value=int(base_vals['RSI']),
-            step=1
-        )
-        # 其他特征保持不变（取基准值）
-        # 注意：为了简化，只让用户调整以上特征，其余保持基准
+# Create a dictionary to store user-adjusted values
+adjusted = base_vals.copy()
 
-    # 构造特征向量
-    X = base.copy()
-    X['VIX_Trend'] = vix
-    X['Sentiment_Level'] = sentiment
-    X['MA_Bias'] = ma_bias
-    X['Volume_Spike'] = volume_spike
-    X['yield_spread'] = yield_spread
-    X['RSI'] = rsi
+# Technical indicators
+with st.sidebar.expander("📉 Technical Indicators", expanded=True):
+    adjusted['MA_Bias'] = st.slider(
+        "MA_Bias (Price vs 20-week MA)",
+        min_value=-0.3, max_value=0.3, value=float(base_vals['MA_Bias']), step=0.01,
+        help="(Close - MA20)/MA20"
+    )
+    adjusted['ATR'] = st.slider(
+        "ATR (Average True Range)",
+        min_value=0.0, max_value=50.0, value=float(base_vals['ATR']), step=0.5,
+        help="14-week average true range"
+    )
+    adjusted['RSI'] = st.slider(
+        "RSI (Relative Strength Index)",
+        min_value=0, max_value=100, value=int(base_vals['RSI']), step=1
+    )
+    adjusted['Volume_Change'] = st.slider(
+        "Volume Change (%)",
+        min_value=-0.5, max_value=1.0, value=float(base_vals['Volume_Change']), step=0.05,
+        help="Weekly volume percentage change"
+    )
 
-# 预测概率
+with st.sidebar.expander("😊 Sentiment Indicators", expanded=True):
+    adjusted['Sentiment_Level'] = st.slider(
+        "Sentiment Level",
+        min_value=0.0, max_value=1.0, value=float(base_vals['Sentiment_Level']), step=0.01,
+        help="Average sentiment score (0=pessimistic, 1=optimistic)"
+    )
+    adjusted['Sentiment_Uncertainty'] = st.slider(
+        "Sentiment Uncertainty",
+        min_value=0.0, max_value=0.3, value=float(base_vals['Sentiment_Uncertainty']), step=0.01,
+        help="Standard deviation of sentiment over 4 weeks"
+    )
+    adjusted['Volume_Spike'] = st.slider(
+        "Volume Spike (Post count ratio)",
+        min_value=0.5, max_value=3.0, value=float(base_vals['Volume_Spike']), step=0.05,
+        help="Current week post count / 4-week average"
+    )
+
+with st.sidebar.expander("🏦 Macro & Interaction", expanded=True):
+    adjusted['VIX_Trend'] = st.slider(
+        "VIX Trend",
+        min_value=-2.0, max_value=30.0, value=float(base_vals['VIX_Trend']), step=0.5,
+        help="Current VIX - 20-week MA"
+    )
+    adjusted['yield_spread'] = st.slider(
+        "Yield Spread (10Y-2Y)",
+        min_value=-1.0, max_value=1.0, value=float(base_vals['yield_spread']), step=0.05
+    )
+    adjusted['Risk_Resonance'] = st.selectbox(
+        "Risk Resonance",
+        options=[0, 1],
+        index=int(base_vals['Risk_Resonance']),
+        help="1 if Sentiment_Uncertainty > median and VIX_Trend > 0"
+    )
+    adjusted['Price_Sentiment_Divergence'] = st.selectbox(
+        "Price-Sentiment Divergence",
+        options=[0, 1],
+        index=int(base_vals['Price_Sentiment_Divergence']),
+        help="1 if price direction differs from sentiment direction"
+    )
+
+# Construct feature vector in correct order
+X = pd.DataFrame([ [adjusted[f] for f in features] ], columns=features)
+
+# Predict
 prob = model.predict_proba(X)[0][1]
 threshold = 0.41
-risk = "高风险 (建议避险)" if prob >= threshold else "低风险 (正常持仓)"
-color = "red" if prob >= threshold else "green"
+risk_text = "High Risk (Recommended to hedge)" if prob >= threshold else "Low Risk (Normal position)"
+risk_class = "risk-high" if prob >= threshold else "risk-low"
+color = "#d32f2f" if prob >= threshold else "#2e7d32"
 
-with col2:
-    st.subheader("📈 预测结果")
-    # 使用 Plotly 仪表盘
+# Main column: Display gauge and risk
+col1, col2 = st.columns([1, 1])
+with col1:
+    st.subheader("📈 Prediction Result")
+    # Gauge chart
     fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=prob*100,
-        title={'text': "风险概率 (%)"},
-        domain={'x': [0, 1], 'y': [0, 1]},
-        gauge={
-            'axis': {'range': [0, 100]},
-            'bar': {'color': color},
+        mode = "gauge+number+delta",
+        value = prob * 100,
+        title = {'text': "Risk Probability (%)", 'font': {'size': 20}},
+        delta = {'reference': threshold*100, 'increasing': {'color': "red"}, 'decreasing': {'color': "green"}},
+        gauge = {
+            'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
+            'bar': {'color': color, 'thickness': 0.8},
+            'bgcolor': "white",
+            'borderwidth': 2,
+            'bordercolor': "gray",
             'steps': [
-                {'range': [0, threshold*100], 'color': "lightgreen"},
-                {'range': [threshold*100, 100], 'color': "lightcoral"}
+                {'range': [0, threshold*100], 'color': '#c8e6c9'},
+                {'range': [threshold*100, 100], 'color': '#ffcdd2'}
             ],
             'threshold': {
                 'line': {'color': "black", 'width': 4},
@@ -107,22 +165,36 @@ with col2:
             }
         }
     ))
-    fig.update_layout(height=300, margin=dict(t=30, b=0, l=0, r=0))
+    fig.update_layout(height=350, margin=dict(t=50, b=20, l=20, r=20), paper_bgcolor="#f5f7fa", font=dict(color="black"))
     st.plotly_chart(fig, use_container_width=True)
-    st.markdown(f"<h3 style='color:{color};'>风险等级: {risk}</h3>", unsafe_allow_html=True)
-    st.caption(f"决策阈值: {threshold:.0%} (成本法优化)")
+    
+    st.markdown(f"<h3 class='{risk_class}'>Risk Level: {risk_text}</h3>", unsafe_allow_html=True)
+    st.caption(f"Decision threshold: {threshold:.0%} (cost-based optimization)")
 
-# 显示当前特征值表
-with st.expander("📋 当前使用的全部特征值"):
-    df_show = pd.DataFrame(X.iloc[0].to_dict(), index=["值"]).T
-    st.dataframe(df_show)
+with col2:
+    st.subheader("🔍 Model Interpretation")
+    st.markdown("""
+    - **VIX Trend** is the strongest positive factor (coefficient +0.66)
+    - **Sentiment Level** also increases risk (coefficient +0.12)
+    - **MA_Bias** has negative coefficient (bull market effect)
+    - **Risk Resonance** amplifies risk when sentiment uncertainty meets high VIX
+    """)
+    st.metric("Model Recall (Rolling Window)", "92.3%")
+    st.metric("AUC", "0.802")
+    st.metric("Optimal Threshold", "0.41")
 
-# 模型说明
+# Show current feature values in a table
+with st.expander("📋 Current Feature Vector (All 11 Features)"):
+    df_show = pd.DataFrame([adjusted]).T
+    df_show.columns = ["Value"]
+    st.dataframe(df_show, use_container_width=True)
+
+# Footer
 st.markdown("---")
 st.markdown("""
-### 💡 模型简介
-- **训练期间**: 2023-01-06 至 2026-01-02 (157周)
-- **验证方法**: 滚动窗口 (训练100周，预测57次)
-- **核心指标**: 召回率 92.3% | AUC 0.802 | 最优阈值 0.41
-- **最强特征**: VIX_Trend (系数 +0.66)，情绪分数系数 +0.12
+### 💡 Model Summary
+- **Training period**: 2023-01-06 to 2026-01-02 (157 weeks)
+- **Validation**: Rolling window (100 weeks train, 1 week test, 57 predictions)
+- **Performance**: Recall 92.3% | AUC 0.802 | F1 0.522
+- **Features**: 11 features including technicals, sentiment, macro, and interactions
 """)
