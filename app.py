@@ -193,7 +193,7 @@ with st.expander("📋 Current Feature Vector (All 11 Features)"):
 st.markdown("---")
 st.markdown("""
 ### 💡 Model Summary
-- **Training period**: 2023-01-06 to 2026-01-02 (157 weeks)
+- **Training period**: 2023-01-01 to 2025-12-31 (157 weeks)
 - **Validation**: Rolling window (100 weeks train, 1 week test, 57 predictions)
 - **Performance**: Recall 92.3% | AUC 0.802 | F1 0.522
 - **Features**: 11 features including technicals, sentiment, macro, and interactions
